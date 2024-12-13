@@ -1,0 +1,101 @@
+import cv2
+import numpy as np
+import face_recognition
+import os
+from datetime import datetime
+import csv
+
+# Create a directory to store known face images
+KNOWN_FACES_DIR = 'known_faces'
+os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+
+# Create a directory for attendance logs
+ATTENDANCE_DIR = 'attendance_logs'
+os.makedirs(ATTENDANCE_DIR, exist_ok=True)
+
+# Load images and encode faces
+def load_known_faces():
+    known_face_encodings = []
+    known_face_names = []
+    
+    for filename in os.listdir(KNOWN_FACES_DIR):
+        filepath = os.path.join(KNOWN_FACES_DIR, filename)
+        image = face_recognition.load_image_file(filepath)
+        encoding = face_recognition.face_encodings(image)[0]
+        known_face_encodings.append(encoding)
+        known_face_names.append(os.path.splitext(filename)[0])
+    
+    return known_face_encodings, known_face_names
+def mark_attendance(name):
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    log_file = os.path.join(ATTENDANCE_DIR, f'{date_str}.csv')
+
+    # Check if attendance is already marked
+    if not os.path.exists(log_file):
+        with open(log_file, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Name', 'Time'])
+
+    with open(log_file, 'r') as file:
+        lines = file.readlines()
+        if any(name in line for line in lines):
+            return
+
+    # Mark attendance
+    with open(log_file, 'a', newline='') as file:
+        writer = csv.writer(file)
+        time_str = datetime.now().strftime('%H:%M:%S')
+        writer.writerow([name, time_str])
+
+def main():
+    # Load known faces
+    known_face_encodings, known_face_names = load_known_faces()
+
+    # Initialize video capture
+    video_capture = cv2.VideoCapture(0)
+
+ print("Starting attendance system. Press 'q' to quit.")
+
+    while True:
+        ret, frame = video_capture.read()
+        if not ret:
+            print("Failed to grab frame.")
+            break
+
+        # Resize frame for faster processing
+        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+        rgb_small_frame = small_frame[:, :, ::-1]
+
+        # Find all face locations and face encodings in the current frame
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+
+        for face_encoding, face_location in zip(face_encodings, face_locations):
+            matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+
+            if len(face_distances) > 0:
+                best_match_index = np.argmin(face_distances)
+
+                if matches[best_match_index]:
+                    name = known_face_names[best_match_index]
+                    mark_attendance(name)
+
+                    # Draw a rectangle and label around the face
+                    top, right, bottom, left = face_location
+top, right, bottom, left = top * 4, right * 4, bottom * 4, left * 4
+                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                    cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2)
+
+        # Display the frame
+        cv2.imshow('Attendance System', frame)
+
+        # Break the loop on pressing 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    video_capture.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
